@@ -18,6 +18,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install dependencies
 COPY pyproject.toml .
+COPY README.md .
 RUN pip install --upgrade pip && \
     pip install -e .
 
