@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     # Server Configuration
     host: str = Field(default="0.0.0.0", description="Server host")
-    port: int = Field(default=8000, description="Server port")
+    port: int = Field(default=8886, description="Server port")
 
     # LLM Configuration
     llm_api_key: str = Field(

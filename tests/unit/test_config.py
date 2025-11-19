@@ -27,7 +27,7 @@ class TestSettings:
 
         # Server settings
         assert config.host == "0.0.0.0"
-        assert config.port == 8000
+        assert config.port == 8886
 
         # LLM settings
         assert config.llm_api_key == "test-key-for-development"
@@ -247,4 +247,4 @@ class TestSettings:
 
             # Default values should still be used for non-overridden fields
             assert config.app_version == "0.1.0"
-            assert config.port == 8000
+            assert config.port == 8886

@@ -116,8 +116,8 @@ The backend is feature-complete and ready for production use. The system can:
    ```
 
 4. **Access the API:**
-   - API documentation: http://localhost:8000/docs
-   - Health check: http://localhost:8000/health
+   - API documentation: http://localhost:8886/docs
+   - Health check: http://localhost:8886/health
 
 ### Docker Deployment
 
@@ -126,7 +126,7 @@ The backend is feature-complete and ready for production use. The system can:
    docker-compose up --build
    ```
 
-2. **The API will be available at:** http://localhost:8000
+2. **The API will be available at:** http://localhost:8886
 
 ## API Usage
 
