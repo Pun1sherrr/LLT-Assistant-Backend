@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # Logging Configuration
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or text)")
+    log_sensitive_data: bool = Field(
+        default=False,
+        validation_alias="LOG_SENSITIVE_DATA",
+        description="Whether to log sensitive data like full LLM requests/responses",
+    )
 
     # CORS Configuration
     cors_origins: list[str] = Field(

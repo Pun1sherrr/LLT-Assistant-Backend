@@ -72,27 +72,40 @@ class QualityAnalysisService:
         analysis_id = str(uuid.uuid4())
 
         logger.info(
-            f"Starting quality analysis {analysis_id} with {len(files)} files, mode: {mode}"
+            "Starting quality analysis: analysis_id=%s, files=%d, mode=%s",
+            analysis_id,
+            len(files),
+            mode,
         )
+        logger.debug("Quality analysis files: %s", [f.path for f in files])
 
         try:
             # Convert mode to TestAnalyzer format
             analyzer_mode = self._convert_mode(mode)
+            logger.debug("Converted mode: %s -> %s", mode, analyzer_mode)
 
             # Perform analysis using existing TestAnalyzer
+            logger.debug("Calling TestAnalyzer.analyze_files")
             analysis_result = await self.test_analyzer.analyze_files(
                 files=files, mode=analyzer_mode
             )
+            logger.debug(
+                "TestAnalyzer returned %d raw issues", len(analysis_result.issues)
+            )
 
             # Convert results to Quality Analysis format
+            logger.debug("Converting issues to quality analysis format")
             quality_issues = self._convert_issues(analysis_result.issues)
 
             # Calculate summary statistics
             summary = self._calculate_summary(files, quality_issues)
 
+            elapsed_ms = int((time.time() - start_time) * 1000)
             logger.info(
-                f"Quality analysis {analysis_id} completed: {len(quality_issues)} issues found "
-                f"in {int((time.time() - start_time) * 1000)}ms"
+                "Quality analysis completed: analysis_id=%s, issues=%d, time_ms=%d",
+                analysis_id,
+                len(quality_issues),
+                elapsed_ms,
             )
 
             return QualityAnalysisResponse(
@@ -100,7 +113,12 @@ class QualityAnalysisService:
             )
 
         except Exception as e:
-            logger.error(f"Quality analysis {analysis_id} failed: {e}")
+            logger.error(
+                "Quality analysis failed: analysis_id=%s, error=%s",
+                analysis_id,
+                e,
+                exc_info=True,
+            )
             raise
 
     def _convert_mode(self, mode: str) -> str:

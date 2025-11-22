@@ -124,10 +124,20 @@ async def submit_generate_tests(
     try:
         # Convert request to dict for task payload
         task_payload = request.model_dump()
+
+        logger.info(
+            "Received test generation request: %d files, mode=%s",
+            len(request.files),
+            request.mode,
+        )
+        logger.debug("Request payload: %s", task_payload)
+
         task_id = await create_task(task_payload)
+        logger.debug("Created task with ID: %s", task_id)
 
         # Launch background task using asyncio instead of Celery
         asyncio.create_task(execute_generate_tests_task(task_id, task_payload))
+        logger.info("Launched background task for test generation: task_id=%s", task_id)
 
         # Return AsyncJobResponse per OpenAPI spec
         return AsyncJobResponse(
@@ -160,10 +170,22 @@ async def submit_coverage_optimization(
     try:
         # Convert request to dict for task payload
         task_payload = request.model_dump()
+
+        logger.info(
+            "Received coverage optimization request: %d files, %d uncovered ranges",
+            len(request.files),
+            sum(len(f.uncovered_ranges) for f in request.files),
+        )
+        logger.debug("Request payload: %s", task_payload)
+
         task_id = await create_task(task_payload)
+        logger.debug("Created task with ID: %s", task_id)
 
         # Launch background task using asyncio
         asyncio.create_task(execute_coverage_optimization_task(task_id, task_payload))
+        logger.info(
+            "Launched background task for coverage optimization: task_id=%s", task_id
+        )
 
         # Return AsyncJobResponse per OpenAPI spec
         return AsyncJobResponse(
@@ -200,8 +222,11 @@ async def get_task_status(task_id: str) -> TaskStatusResponse | StarletteRespons
     Raises:
         HTTPException: 404 if task not found
     """
+    logger.debug("Polling task status: task_id=%s", task_id)
+
     task_data = await get_task(task_id)
     if task_data is None:
+        logger.debug("Task not found: task_id=%s", task_id)
         return StarletteResponse(status_code=404)
 
     # Convert task data to TaskStatusResponse
@@ -211,6 +236,14 @@ async def get_task_status(task_id: str) -> TaskStatusResponse | StarletteRespons
             message=task_data["error"],
             code=None,  # Can be enhanced with specific error codes
         )
+
+    logger.info(
+        "Returning task status: task_id=%s, status=%s, has_result=%s, has_error=%s",
+        task_id,
+        task_data["status"],
+        task_data.get("result") is not None,
+        error is not None,
+    )
 
     return TaskStatusResponse(
         task_id=task_data["id"],
@@ -255,9 +288,24 @@ async def analyze_quality(
                 detail=f"Too many files (max {MAX_FILES_PER_REQUEST})",
             )
 
+        logger.info(
+            "Starting quality analysis: %d files, mode=%s",
+            len(request.files),
+            request.mode,
+        )
+        logger.debug(
+            "Quality analysis request received for files: %s",
+            [f.path for f in request.files],
+        )
+
         # Run quality analysis
         result = await quality_service.analyze_batch(
             files=request.files, mode=request.mode
+        )
+
+        logger.info(
+            "Quality analysis completed: %d issues found",
+            len(result.issues) if result.issues else 0,
         )
 
         return result
@@ -301,6 +349,16 @@ async def analyze_impact(
         if not request.project_context.files_changed:
             raise HTTPException(status_code=400, detail="files_changed cannot be empty")
 
+        logger.info(
+            "Starting impact analysis: %d changed files, %d related tests",
+            len(request.project_context.files_changed),
+            len(request.project_context.related_tests),
+        )
+        logger.debug(
+            "Changed files: %s",
+            [entry.path for entry in request.project_context.files_changed],
+        )
+
         # Extract data from request
         files_changed = [
             {"path": entry.path, "change_type": entry.change_type}
@@ -310,6 +368,11 @@ async def analyze_impact(
 
         # Run impact analysis
         result = impact_analyzer.analyze_impact(files_changed, related_tests)
+
+        logger.info(
+            "Impact analysis completed: %d impacted tests found",
+            len(result.impacted_tests) if result.impacted_tests else 0,
+        )
 
         return result
 

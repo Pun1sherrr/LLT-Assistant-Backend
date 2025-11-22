@@ -174,13 +174,21 @@ async def update_task_status(
     if task is None:
         raise ValueError(f"Task {task_id} not found")
 
+    old_status = task["status"]
     task["status"] = status.value
     task["updated_at"] = _now_iso()
     task["result"] = result
     task["error"] = error
 
     await _save_task(task_id, task)
-    logger.debug(f"Updated task {task_id} status to {status.value}")
+    logger.debug(
+        "Updated task status: task_id=%s, %s -> %s, has_result=%s, has_error=%s",
+        task_id,
+        old_status,
+        status.value,
+        result is not None,
+        error is not None,
+    )
 
 
 async def _save_task(task_id: str, task_data: Dict[str, Any]) -> None:
@@ -202,9 +210,11 @@ async def _save_task(task_id: str, task_data: Dict[str, Any]) -> None:
 async def execute_generate_tests_task(task_id: str, payload: Dict[str, Any]) -> None:
     """Execute test generation task asynchronously."""
     try:
+        logger.debug("Starting test generation task: task_id=%s", task_id)
         await update_task_status(task_id, TaskStatus.PROCESSING)
 
         # Generate tests using new request format
+        logger.info("Generating tests from LLM: task_id=%s", task_id)
         generation_result = await _generate_tests_from_llm(payload)
 
         # Format result as GenerateTestsResult per OpenAPI spec
@@ -213,10 +223,16 @@ async def execute_generate_tests_task(task_id: str, payload: Dict[str, Any]) -> 
             "explanation": generation_result["explanation"],
         }
 
+        logger.debug(
+            "Test generation completed: task_id=%s, code_length=%d",
+            task_id,
+            len(result["generated_code"]),
+        )
+
         await update_task_status(task_id, TaskStatus.COMPLETED, result=result)
-        logger.info(f"Task {task_id} completed successfully")
+        logger.info("Task completed successfully: task_id=%s", task_id)
     except Exception as exc:
-        logger.error(f"Task {task_id} failed: {exc}", exc_info=True)
+        logger.error("Task failed: task_id=%s, error=%s", task_id, exc, exc_info=True)
         await update_task_status(task_id, TaskStatus.FAILED, error=str(exc))
 
 
@@ -229,6 +245,7 @@ async def _generate_tests_from_llm(payload: Dict[str, Any]) -> Dict[str, str]:
     existing_test_code = payload.get("existing_test_code", "")
     context = payload.get("context", {}) or {}
 
+    logger.debug("Building LLM messages for test generation")
     messages = _build_generation_messages(
         source_code=source_code,
         user_description=user_description,
@@ -238,12 +255,14 @@ async def _generate_tests_from_llm(payload: Dict[str, Any]) -> Dict[str, str]:
 
     client = create_llm_client()
     try:
+        logger.info("Sending test generation request to LLM")
         raw_response = await client.chat_completion(
             messages=messages,
             temperature=0.2,
             max_tokens=2000,
         )
 
+        logger.debug("Parsing LLM response for test generation")
         # Parse response to extract code and explanation
         return _parse_generation_response(raw_response)
     finally:
@@ -333,9 +352,11 @@ async def execute_coverage_optimization_task(
 ) -> None:
     """Execute coverage optimization task asynchronously."""
     try:
+        logger.debug("Starting coverage optimization task: task_id=%s", task_id)
         await update_task_status(task_id, TaskStatus.PROCESSING)
 
         # Generate coverage optimization using LLM
+        logger.info("Generating coverage optimization from LLM: task_id=%s", task_id)
         optimization_result = await _generate_coverage_optimization_from_llm(payload)
 
         # Format result as CoverageOptimizationResult per OpenAPI spec
@@ -343,10 +364,16 @@ async def execute_coverage_optimization_task(
             "recommended_tests": optimization_result["recommended_tests"],
         }
 
+        logger.debug(
+            "Coverage optimization completed: task_id=%s, recommendations=%d",
+            task_id,
+            len(result["recommended_tests"]),
+        )
+
         await update_task_status(task_id, TaskStatus.COMPLETED, result=result)
-        logger.info(f"Task {task_id} completed successfully")
+        logger.info("Task completed successfully: task_id=%s", task_id)
     except Exception as exc:
-        logger.error(f"Task {task_id} failed: {exc}", exc_info=True)
+        logger.error("Task failed: task_id=%s, error=%s", task_id, exc, exc_info=True)
         await update_task_status(task_id, TaskStatus.FAILED, error=str(exc))
 
 
@@ -361,6 +388,11 @@ async def _generate_coverage_optimization_from_llm(
     uncovered_ranges = payload.get("uncovered_ranges", [])
     framework = payload.get("framework", "pytest")
 
+    logger.debug(
+        "Building coverage optimization messages: uncovered_ranges=%d",
+        len(uncovered_ranges),
+    )
+
     messages = _build_coverage_optimization_messages(
         source_code=source_code,
         existing_test_code=existing_test_code,
@@ -370,12 +402,14 @@ async def _generate_coverage_optimization_from_llm(
 
     client = create_llm_client()
     try:
+        logger.info("Sending coverage optimization request to LLM")
         raw_response = await client.chat_completion(
             messages=messages,
             temperature=0.2,
             max_tokens=3000,  # May need more tokens for multiple test recommendations
         )
 
+        logger.debug("Parsing LLM response for coverage optimization")
         # Parse response to extract coverage optimization recommendations
         return _parse_coverage_optimization_response(raw_response)
     finally:

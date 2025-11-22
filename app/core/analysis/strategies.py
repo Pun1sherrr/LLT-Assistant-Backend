@@ -39,17 +39,28 @@ class RulesOnlyStrategy(AnalysisStrategy):
         Returns:
             List of detected issues from rule engine
         """
+        logger.info("Starting rules-only analysis on %d files", len(parsed_files))
         rule_issues = []
 
         for parsed_file in parsed_files:
             try:
+                logger.debug("Analyzing file with rules: %s", parsed_file.file_path)
                 file_issues = rule_engine.analyze(parsed_file)
                 rule_issues.extend(file_issues)
+                logger.debug(
+                    "Rules analysis completed: file=%s, issues=%d",
+                    parsed_file.file_path,
+                    len(file_issues),
+                )
             except Exception as e:
                 logger.error(
-                    f"Rule engine failed for file {parsed_file.file_path}: {e}"
+                    "Rule engine failed for file %s: %s",
+                    parsed_file.file_path,
+                    e,
+                    exc_info=True,
                 )
 
+        logger.info("Rules-only analysis completed: total_issues=%d", len(rule_issues))
         return rule_issues
 
     def get_name(self) -> str:
@@ -80,13 +91,21 @@ class LLMOnlyStrategy(AnalysisStrategy):
         Returns:
             List of detected issues from LLM analysis
         """
+        logger.info("Starting LLM-only analysis on %d files", len(parsed_files))
         llm_issues = []
 
         for parsed_file in parsed_files:
             # Analyze all test functions with LLM
+            logger.debug("Analyzing file with LLM: %s", parsed_file.file_path)
             file_issues = await self._analyze_file_with_llm(parsed_file, llm_analyzer)
             llm_issues.extend(file_issues)
+            logger.debug(
+                "LLM analysis completed: file=%s, issues=%d",
+                parsed_file.file_path,
+                len(file_issues),
+            )
 
+        logger.info("LLM-only analysis completed: total_issues=%d", len(llm_issues))
         return llm_issues
 
     async def _analyze_file_with_llm(
@@ -192,29 +211,55 @@ class HybridStrategy(AnalysisStrategy):
         Returns:
             List of detected issues from both analyses
         """
+        logger.info("Starting hybrid analysis on %d files", len(parsed_files))
         all_issues = []
 
         # Step 1: Run rule engine analysis (fast, always runs)
+        logger.debug("Phase 1: Running rules-only analysis on all files")
+        rules_issues_count = 0
         for parsed_file in parsed_files:
             try:
                 file_issues = rule_engine.analyze(parsed_file)
                 all_issues.extend(file_issues)
+                rules_issues_count += len(file_issues)
             except Exception as e:
                 logger.error(
-                    f"Rule engine failed for file {parsed_file.file_path}: {e}"
+                    "Rule engine failed for file %s: %s",
+                    parsed_file.file_path,
+                    e,
+                    exc_info=True,
                 )
 
+        logger.debug("Phase 1 completed: %d issues from rules", rules_issues_count)
+
         # Step 2: Run LLM analysis only on uncertain cases
+        logger.debug("Phase 2: Identifying uncertain cases for LLM analysis")
+        total_uncertain = 0
+        llm_issues_count = 0
         for parsed_file in parsed_files:
             uncertain_functions = self.uncertain_detector.identify_uncertain_cases(
                 parsed_file
             )
+            total_uncertain += len(uncertain_functions)
 
             for test_func in uncertain_functions:
                 func_issues = await self._analyze_function_with_llm(
                     test_func, parsed_file, llm_analyzer
                 )
                 all_issues.extend(func_issues)
+                llm_issues_count += len(func_issues)
+
+        logger.debug(
+            "Phase 2 completed: %d uncertain cases analyzed, %d issues from LLM",
+            total_uncertain,
+            llm_issues_count,
+        )
+        logger.info(
+            "Hybrid analysis completed: total_issues=%d (rules=%d, llm=%d)",
+            len(all_issues),
+            rules_issues_count,
+            llm_issues_count,
+        )
 
         return all_issues
 

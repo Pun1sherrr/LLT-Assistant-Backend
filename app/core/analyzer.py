@@ -84,14 +84,25 @@ class TestAnalyzer:
         analysis_id = str(uuid.uuid4())
 
         logger.info(
-            f"Starting analysis {analysis_id} with mode: {mode}, files: {len(files)}"
+            "Starting analysis: analysis_id=%s, mode=%s, files=%d",
+            analysis_id,
+            mode,
+            len(files),
         )
+        logger.debug("Analysis ID: %s", analysis_id)
 
         try:
             # Step 1: Parse all files in parallel
+            logger.debug("Parsing %d files in parallel", len(files))
             parsed_files = await self._parse_files_parallel(files)
+            logger.debug(
+                "Parsed files: %d successful, %d total",
+                len(parsed_files),
+                len(files),
+            )
 
             # Step 2: Get and execute analysis strategy
+            logger.debug("Using strategy: %s", mode)
             strategy = get_strategy(mode)
             all_issues = await strategy.analyze(
                 parsed_files, self.rule_engine, self.llm_analyzer
@@ -107,8 +118,11 @@ class TestAnalyzer:
             )
 
             logger.info(
-                f"Analysis {analysis_id} completed: {len(all_issues)} issues found "
-                f"in {metrics.analysis_time_ms}ms"
+                "Analysis completed: analysis_id=%s, issues=%d, tests=%d, time_ms=%d",
+                analysis_id,
+                len(all_issues),
+                total_tests,
+                metrics.analysis_time_ms,
             )
 
             return AnalyzeResponse(
@@ -116,7 +130,12 @@ class TestAnalyzer:
             )
 
         except Exception as e:
-            logger.error(f"Analysis {analysis_id} failed: {e}")
+            logger.error(
+                "Analysis failed: analysis_id=%s, error=%s",
+                analysis_id,
+                e,
+                exc_info=True,
+            )
             raise
 
     async def _parse_files_parallel(
@@ -131,25 +150,40 @@ class TestAnalyzer:
         Returns:
             List of successfully parsed test files
         """
+        logger.debug("Creating %d parse tasks for parallel execution", len(files))
         tasks = []
         for file_input in files:
             task = asyncio.create_task(self._parse_file_safe(file_input))
             tasks.append(task)
 
         parsed_files = await asyncio.gather(*tasks, return_exceptions=True)
+        logger.debug("All parse tasks completed")
 
         # Filter out failed parses and exceptions
         valid_files = []
+        error_count = 0
+        syntax_error_count = 0
         for i, result in enumerate(parsed_files):
             if isinstance(result, Exception):
-                logger.error(f"Failed to parse file {files[i].path}: {result}")
+                error_count += 1
+                logger.error("Failed to parse file %s: %s", files[i].path, result)
             elif result.has_syntax_errors:
+                syntax_error_count += 1
                 logger.warning(
-                    f"File {files[i].path} has syntax errors: {result.syntax_error_message}"
+                    "File has syntax errors: path=%s, error=%s",
+                    files[i].path,
+                    result.syntax_error_message,
                 )
                 valid_files.append(result)
             else:
                 valid_files.append(result)
+
+        logger.debug(
+            "Parse summary: %d valid, %d syntax_errors, %d failed",
+            len(valid_files) - syntax_error_count,
+            syntax_error_count,
+            error_count,
+        )
 
         return valid_files
 

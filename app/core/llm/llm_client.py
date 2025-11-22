@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -104,10 +105,24 @@ class LLMClient:
             "stream": stream,
         }
 
-        logger.debug(f"Sending LLM request to {url}")
+        logger.info(
+            "LLM request starting: model=%s, messages=%d, temp=%.2f, max_tokens=%d",
+            self.model,
+            len(messages),
+            temperature,
+            max_tokens,
+        )
+
+        if settings.log_sensitive_data:
+            logger.debug("LLM request payload: %s", json.dumps(payload, indent=2))
+
+        start_time = time.time()
 
         for attempt in range(self.max_retries + 1):
             try:
+                logger.debug(
+                    "LLM request attempt %d/%d", attempt + 1, self.max_retries + 1
+                )
                 response = await self.client.post(url, json=payload)
 
                 # Handle rate limiting
@@ -115,7 +130,10 @@ class LLMClient:
                     if attempt < self.max_retries:
                         retry_after = self._get_retry_after(response)
                         logger.warning(
-                            f"Rate limited, retrying after {retry_after}s (attempt {attempt + 1})"
+                            "Rate limited, retrying after %.1fs (attempt %d/%d)",
+                            retry_after,
+                            attempt + 1,
+                            self.max_retries + 1,
                         )
                         await asyncio.sleep(retry_after)
                         continue
@@ -127,7 +145,11 @@ class LLMClient:
                     if attempt < self.max_retries:
                         wait_time = 2**attempt  # Exponential backoff
                         logger.warning(
-                            f"Server error {response.status_code}, retrying after {wait_time}s"
+                            "Server error %d, retrying after %ds (attempt %d/%d)",
+                            response.status_code,
+                            wait_time,
+                            attempt + 1,
+                            self.max_retries + 1,
                         )
                         await asyncio.sleep(wait_time)
                         continue
@@ -145,6 +167,11 @@ class LLMClient:
                     except:
                         error_data = response.text
 
+                    logger.error(
+                        "LLM API client error: status=%d, response=%s",
+                        response.status_code,
+                        error_data,
+                    )
                     raise LLMAPIError(
                         f"Client error {response.status_code}: {response.text}",
                         status_code=response.status_code,
@@ -157,14 +184,30 @@ class LLMClient:
                 if "choices" in response_data and len(response_data["choices"]) > 0:
                     content = response_data["choices"][0]["message"]["content"]
 
+                    elapsed_time = time.time() - start_time
+
                     # Log token usage if available
                     if "usage" in response_data:
                         usage = response_data["usage"]
                         logger.info(
-                            f"LLM API usage - prompt_tokens: {usage.get('prompt_tokens', 0)}, "
-                            f"completion_tokens: {usage.get('completion_tokens', 0)}, "
-                            f"total_tokens: {usage.get('total_tokens', 0)}"
+                            "LLM request successful: elapsed=%.2fs, prompt_tokens=%d, "
+                            "completion_tokens=%d, total_tokens=%d",
+                            elapsed_time,
+                            usage.get("prompt_tokens", 0),
+                            usage.get("completion_tokens", 0),
+                            usage.get("total_tokens", 0),
                         )
+                    else:
+                        logger.info(
+                            "LLM request successful: elapsed=%.2fs, response_length=%d",
+                            elapsed_time,
+                            len(content),
+                        )
+
+                    if settings.log_sensitive_data:
+                        logger.debug(
+                            "LLM response: %s", content[:500]
+                        )  # First 500 chars
 
                     return content.strip()
                 else:
@@ -173,10 +216,20 @@ class LLMClient:
             except httpx.TimeoutException:
                 if attempt < self.max_retries:
                     wait_time = 2**attempt
-                    logger.warning(f"Request timeout, retrying after {wait_time}s")
+                    logger.warning(
+                        "Request timeout, retrying after %ds (attempt %d/%d)",
+                        wait_time,
+                        attempt + 1,
+                        self.max_retries + 1,
+                    )
                     await asyncio.sleep(wait_time)
                     continue
                 else:
+                    elapsed_time = time.time() - start_time
+                    logger.error(
+                        "LLM request timed out after %.2fs and all retries",
+                        elapsed_time,
+                    )
                     raise LLMTimeoutError(
                         f"Request timed out after {self.timeout}s and all retries"
                     )
@@ -185,16 +238,23 @@ class LLMClient:
                 if attempt < self.max_retries:
                     wait_time = 2**attempt
                     logger.warning(
-                        f"Connection error, retrying after {wait_time}s: {e}"
+                        "Connection error, retrying after %ds (attempt %d/%d): %s",
+                        wait_time,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        str(e),
                     )
                     await asyncio.sleep(wait_time)
                     continue
                 else:
+                    logger.error("Connection error after all retries: %s", str(e))
                     raise LLMAPIError(f"Connection error after all retries: {e}")
 
             except Exception as e:
                 if not isinstance(e, LLMClientError):
-                    logger.error(f"Unexpected error in LLM request: {e}")
+                    logger.error(
+                        "Unexpected error in LLM request: %s", str(e), exc_info=True
+                    )
                     raise LLMAPIError(f"Unexpected error: {e}")
                 else:
                     raise
