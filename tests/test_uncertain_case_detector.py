@@ -4,9 +4,11 @@ from unittest.mock import MagicMock
 from app.core.analysis.uncertain_case_detector import UncertainCaseDetector
 from app.analyzers.ast_parser import ParsedTestFile, TestFunctionInfo, TestClassInfo
 
+
 @pytest.fixture
 def detector():
     return UncertainCaseDetector()
+
 
 def create_mock_func(name, assertions=[], decorators=[], source_code=""):
     func = MagicMock(spec=TestFunctionInfo)
@@ -16,6 +18,7 @@ def create_mock_func(name, assertions=[], decorators=[], source_code=""):
     func.source_code = source_code
     func.unique_id = uuid.uuid4()
     return func
+
 
 def test_identify_uncertain_cases_similar_names(detector):
     func1 = create_mock_func("test_user_creation_success")
@@ -30,17 +33,18 @@ def test_identify_uncertain_cases_similar_names(detector):
     assert func2 in uncertain
     assert func3 not in uncertain
 
+
 def test_identify_uncertain_cases_complex_assertions(detector):
     assertion1 = MagicMock()
     assertion1.assertion_type = "equality"
     assertion2 = MagicMock()
     assertion2.assertion_type = "other"
-    
+
     func1 = create_mock_func("check_complex_output_validation")
     func1.assertions = [assertion1, assertion2]
     func2 = create_mock_func("verify_simple_return_value")
     func2.assertions = [assertion1]
-    
+
     parsed_file = MagicMock(spec=ParsedTestFile)
     parsed_file.test_functions = [func1, func2]
     parsed_file.test_classes = []
@@ -48,6 +52,7 @@ def test_identify_uncertain_cases_complex_assertions(detector):
     uncertain = detector.identify_uncertain_cases(parsed_file)
     assert func1 in uncertain
     assert func2 not in uncertain
+
 
 def test_identify_uncertain_cases_unusual_patterns(detector):
     func1 = create_mock_func("test_case_with_sleep_call")
@@ -57,7 +62,7 @@ def test_identify_uncertain_cases_unusual_patterns(detector):
     func3 = create_mock_func("test_case_with_many_decorators")
     func3.decorators = [1, 2, 3, 4]
     func4 = create_mock_func("a_regular_test_case_for_patterns")
-    
+
     parsed_file = MagicMock(spec=ParsedTestFile)
     parsed_file.test_functions = [func1, func2, func3, func4]
     parsed_file.test_classes = []
@@ -68,11 +73,12 @@ def test_identify_uncertain_cases_unusual_patterns(detector):
     assert func3 in uncertain
     assert func4 not in uncertain
 
+
 def test_are_similar_functions(detector):
     func1 = create_mock_func("test_get_user_by_id")
     func2 = create_mock_func("test_get_user_by_name")
     func3 = create_mock_func("test_delete_product_completely")
-    
+
     assert detector._are_similar_functions(func1, func2) is True
     assert detector._are_similar_functions(func1, func3) is False
 
@@ -83,11 +89,12 @@ def test_has_unusual_patterns(detector):
     # More than MIN_DECORATORS_FOR_UNUSUAL (3)
     func_decorators = create_mock_func("test_decorators", decorators=[1, 2, 3, 4, 5, 6])
     func_normal = create_mock_func("test_normal", source_code="x = 1")
-    
+
     assert detector._has_unusual_patterns(func_sleep) is True
     assert detector._has_unusual_patterns(func_global) is True
     assert detector._has_unusual_patterns(func_decorators) is True
     assert detector._has_unusual_patterns(func_normal) is False
+
 
 def test_no_uncertain_cases(detector):
     func1 = create_mock_func("validate_user_creation_endpoint")
@@ -98,6 +105,7 @@ def test_no_uncertain_cases(detector):
 
     uncertain = detector.identify_uncertain_cases(parsed_file)
     assert len(uncertain) == 0
+
 
 def test_identify_uncertain_cases_in_classes(detector):
     class_func1 = create_mock_func("test_similar_in_class_a")
